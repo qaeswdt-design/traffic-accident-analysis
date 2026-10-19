@@ -3,8 +3,10 @@
 一鍵重新產生「台灣交通事故分析」專案的所有圖表。
 
 用法：
-    python run_all.py            # 只重跑圖表（用現有 data.db，最常用）
-    python run_all.py --refresh  # 先檢查官方資料有沒有更新，有更新才重新下載+匯入資料庫，再重跑圖表
+    python run_all.py                      # 只重跑圖表（用現有 data.db，最常用）
+    python run_all.py --refresh            # 先檢查官方資料有沒有更新，有更新會詢問是否下載，再匯入資料庫、重跑圖表
+    python run_all.py --refresh --yes      # 同上，但有更新就直接下載、不詢問（可全自動執行）
+    python run_all.py --with-optional      # 連同密度熱點圖、互動地圖一起執行
 
 執行完成後，所有圖表會輸出到 ./outputs/ 資料夾。
 """
@@ -23,7 +25,7 @@ except AttributeError:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# ---- 資料更新（可選，預設跳過，因為原腳本有互動確認、且不一定每次都要重抓） ----
+# ---- 資料更新（可選，預設跳過，因為不一定每次都要重抓；加 --yes 可略過下載確認） ----
 REFRESH_STEPS = [
     ("下載最新官方資料（比對更新時間，有更新才下載）", "當前資料下載更新.py"),
     ("將下載的 CSV/JSON 匯入 data.db", "資料塞入資料庫.py"),
@@ -33,8 +35,8 @@ REFRESH_STEPS = [
 CHART_STEPS = [
     ("01A 事故時間分布", "時間上的分析.py"),
     ("02  事故主要肇因 TOP5", "北北基桃交通事故主要肇因 TOP 5.py"),
-    ("02B 地區間肇因比較", "橫條圖.py"),
-    ("03  道路環境分析", "依時間區分.py"),
+    ("02B 地區間肇因比較", "各縣市肇因比較.py"),
+    ("03  道路環境分析", "道路型態肇因分析.py"),
     ("04  外部環境分析（光線）", "依光照分析.py"),
     ("05  道路設施分析（號誌／車道劃分設施）", "road_facility_final.py"),
     ("06  當事者特徵分析（含01B車種×縣市比較）", "關於事故者的交叉分析.py"),
@@ -48,7 +50,7 @@ OPTIONAL_STEPS = [
 ]
 
 
-def run_step(label, script_name):
+def run_step(label, script_name, extra_args=()):
     script_path = os.path.join(BASE_DIR, script_name)
     print(f"\n{'='*60}\n▶ {label}\n  ({script_name})\n{'='*60}")
     if not os.path.exists(script_path):
@@ -61,7 +63,7 @@ def run_step(label, script_name):
     # 強制非互動繪圖後端：避免 plt.show() 在有些機器上跳出視窗、卡住等使用者手動關閉，
     # 圖表本來就是靠 savefig() 存檔，不需要跳窗顯示。
     env["MPLBACKEND"] = "Agg"
-    result = subprocess.run([sys.executable, script_path], cwd=BASE_DIR, env=env)
+    result = subprocess.run([sys.executable, script_path, *extra_args], cwd=BASE_DIR, env=env)
     if result.returncode != 0:
         print(f"  ✗ 執行失敗（exit code {result.returncode}）")
         return False
@@ -75,20 +77,31 @@ def main():
                          help="先檢查並下載最新官方資料、重新匯入資料庫，再產生圖表")
     parser.add_argument("--with-optional", action="store_true",
                          help="連同探索性功能（密度熱點圖、互動地圖）一起執行")
+    parser.add_argument("--yes", action="store_true",
+                         help="搭配 --refresh：偵測到官方資料更新時不詢問，直接下載")
+    parser.add_argument("--insecure", action="store_true",
+                         help="搭配 --refresh：下載時不驗證 SSL 憑證（最後手段，不建議）")
     args = parser.parse_args()
+
+    download_args = []
+    if args.yes:
+        download_args.append("--yes")
+    if args.insecure:
+        download_args.append("--insecure")
 
     steps = []
     if args.refresh:
-        steps += REFRESH_STEPS
-    steps += CHART_STEPS
+        steps += [(label, script, download_args if script == "當前資料下載更新.py" else [])
+                  for label, script in REFRESH_STEPS]
+    steps += [(label, script, []) for label, script in CHART_STEPS]
     if args.with_optional:
-        steps += OPTIONAL_STEPS
+        steps += [(label, script, []) for label, script in OPTIONAL_STEPS]
 
     print(f"共 {len(steps)} 個步驟，圖表將輸出到 {os.path.join(BASE_DIR, 'outputs')}\n")
 
     results = []
-    for label, script_name in steps:
-        ok = run_step(label, script_name)
+    for label, script_name, extra_args in steps:
+        ok = run_step(label, script_name, extra_args)
         results.append((label, ok))
 
     print(f"\n{'='*60}\n執行結果總覽\n{'='*60}")

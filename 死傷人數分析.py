@@ -1,21 +1,20 @@
-import sqlite3
-import pandas as pd
 import matplotlib.pyplot as plt
-import os
+import pandas as pd
 
-plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
-plt.rcParams["axes.unicode_minus"] = False
+import common
 
-os.makedirs("./outputs", exist_ok=True)
+common.setup_matplotlib_font()
 
 # ========== 資料讀取:A1(死亡)+ A2(受傷) ==========
-db_path = "./data.db"
-conn = sqlite3.connect(db_path)
-df_a2 = pd.read_sql("SELECT * FROM tma2_data", conn)
-df_a1 = pd.read_sql("SELECT * FROM tma1_data", conn)
-conn.close()
+df_a2 = common.load_table("tma2_data")
+df_a1 = common.load_table("tma1_data")
+
+# A1 是整份 JSON、A2 是逐月 CSV,期間可能不同;
+# 死亡率的分子(死亡)與分母(死亡+受傷)必須落在同一段期間,所以把 A1 截到 A2 的最後一天。
+df_a1 = common.restrict_a1_to_a2_period(df_a1, df_a2)
 
 casualty_col = "死亡受傷人數"
+
 
 def parse_casualty(text):
     if pd.isna(text):
@@ -28,6 +27,7 @@ def parse_casualty(text):
     except (IndexError, ValueError):
         return pd.Series([None, None])
 
+
 df_a2[["死亡數", "受傷數"]] = df_a2[casualty_col].apply(parse_casualty)
 df_a1[["死亡數", "受傷數"]] = df_a1[casualty_col].apply(parse_casualty)
 
@@ -37,14 +37,11 @@ df_a1["資料來源"] = "A1"
 common_cols = list(set(df_a1.columns) & set(df_a2.columns))
 df_combined = pd.concat([df_a1[common_cols], df_a2[common_cols]], ignore_index=True)
 
-location_col = "發生地點"
-party_col = "當事者順位"
 vtype_col = "當事者區分-類別-大類別名稱-車種"
 
 # ========== 兩層篩選:第1當事人 + 北北基桃 ==========
-df_first = df_combined[df_combined[party_col].astype(str).str.contains("1", na=False)]
-city_pattern = "桃園市|新北市|臺北市|台北市|基隆市"
-df_first = df_first[df_first[location_col].astype(str).str.contains(city_pattern, na=False)].copy()
+# 死亡受傷人數是整起事故的合計,每起事故只能取一列(第1當事者)來加總,否則會重複計算
+df_first = common.filter_first_party_four_cities(df_combined, add_city_column=False)
 
 # ========== 主要車種(保留「人」) ==========
 main_vtypes_with_pedestrian = ["機車", "小客車(含客、貨兩用)", "人", "慢車", "小貨車", "大貨車", "大客車"]
@@ -66,7 +63,6 @@ casualty_sorted = casualty_by_vtype.sort_values("死亡率", ascending=True)
 
 print("各車種死亡率排名(由高到低):")
 print(casualty_by_vtype.sort_values("死亡率", ascending=False).round(2))
-# %%
 
 
 # ========== 單一張圖:死亡率排名 ==========
@@ -88,5 +84,5 @@ for bar, rate, death, injury in zip(
     )
 
 fig.subplots_adjust(left=0.2, right=0.97, top=0.9, bottom=0.12)
-plt.savefig("./outputs/07_死亡率_車種.png", dpi=300, transparent=True, bbox_inches="tight")
+plt.savefig(common.output_path("07_死亡率_車種.png"), dpi=300, transparent=True, bbox_inches="tight")
 plt.show()

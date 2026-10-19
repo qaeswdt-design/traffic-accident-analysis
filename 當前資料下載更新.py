@@ -7,6 +7,11 @@ data.gov.tw 官方提供整批資料集詮釋資料的 CSV 匯出端點,
 裡面已經包含「資料集識別碼」「詮釋資料更新時間」「資料下載網址」等欄位,
 不需要用瀏覽器引擎打開網頁畫面去解析 HTML,單純用 requests 下載 CSV 即可。
 這是官方設計給程式化存取(M2M)用的端點,比爬網頁畫面更穩定、也更符合網站規範。
+
+用法:
+    python 當前資料下載更新.py          # 偵測到更新時會詢問是否下載
+    python 當前資料下載更新.py --yes    # 不詢問,偵測到更新就直接下載(給 run_all.py --refresh 用)
+    python 當前資料下載更新.py --insecure  # 最後手段:不驗證 SSL 憑證(不建議)
 '''
 import re
 import os
@@ -15,10 +20,10 @@ import csv
 import json
 import time
 import random
+import argparse
 import requests
-import urllib3
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import common
 
 # data.gov.tw 官方資料集詮釋資料匯出 API(CSV 格式)
 EXPORT_API_URL = "https://data.gov.tw/api/v2/rest/dataset/export?format=csv"
@@ -26,8 +31,8 @@ EXPORT_API_URL = "https://data.gov.tw/api/v2/rest/dataset/export?format=csv"
 # 要追蹤的資料集識別碼(對應原本網址 https://data.gov.tw/dataset/13139 裡的數字)
 TARGET_DATASET_IDS = ["13139", "57023"]
 
-OUTPUT_DIR = "downloads"
-TIMESTAMP_RECORD_FILE = "last_update.json"
+OUTPUT_DIR = os.path.join(common.BASE_DIR, "downloads")
+TIMESTAMP_RECORD_FILE = os.path.join(common.BASE_DIR, "last_update.json")
 
 
 def load_last_update_records():
@@ -44,18 +49,13 @@ def save_last_update_records(records):
         json.dump(records, f, ensure_ascii=False, indent=2)
 
 
-def fetch_dataset_export():
+def fetch_dataset_export(session):
     """下載官方整批資料集匯出 CSV,回傳 {資料集識別碼: row_dict} 的字典"""
     print("正在下載 data.gov.tw 官方資料集匯出清單...")
-    resp = requests.get(
-        EXPORT_API_URL,
-        headers={"User-Agent": "Mozilla/5.0"},
-        timeout=(10, 60),
-        verify=False,
-    )
+    resp = session.get(EXPORT_API_URL, timeout=(10, 60))
     resp.raise_for_status()
 
-    # CSV 內容通常是 UTF-8 with BOM,用 utf-8-sig 處理避免第一個欄位名稱多出 \ufeff
+    # CSV 內容通常是 UTF-8 with BOM,用 utf-8-sig 處理避免第一個欄位名稱多出
     text = resp.content.decode("utf-8-sig", errors="replace")
     reader = csv.DictReader(io.StringIO(text))
 
@@ -84,20 +84,19 @@ def get_dataset_info(all_rows, dataset_id):
     return update_time, links
 
 
-def download_all(links):
+def download_all(session, links):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    headers = {"User-Agent": "Mozilla/5.0"}
 
     for url in links:
         try:
-            resp = requests.get(url, headers=headers, stream=True, timeout=(10, 20), verify=False)
+            resp = session.get(url, stream=True, timeout=(10, 20))
             resp.raise_for_status()
         except requests.RequestException as e:
             print(f"  下載失敗: {url} ({e})")
             continue
 
         cd = resp.headers.get("content-disposition", "")
-        match = re.search(r'filename="?([^"]+)"?', cd)
+        match = re.search(r'filename="?([^";]+)"?', cd)
         if match:
             filename = match.group(1)
         else:
@@ -111,7 +110,17 @@ def download_all(links):
         time.sleep(random.randint(6, 10))
 
 
-def process_dataset(dataset_id, all_rows, records):
+def confirm_download(assume_yes):
+    if assume_yes:
+        return True
+    try:
+        return input("如需更新請按 1:").strip() == "1"
+    except EOFError:
+        print("  目前不是互動式終端機,無法詢問;要自動下載請加上 --yes")
+        return False
+
+
+def process_dataset(session, dataset_id, all_rows, records, assume_yes):
     """處理單一資料集:抓時間+連結 → 跟記錄比對 → 有更新才下載"""
     print(f"檢查資料集: {dataset_id} (https://data.gov.tw/dataset/{dataset_id})")
     update_time, links = get_dataset_info(all_rows, dataset_id)
@@ -123,12 +132,13 @@ def process_dataset(dataset_id, all_rows, records):
     if update_time is None:
         print("  警告: 在匯出清單裡找不到這個資料集識別碼,請確認 ID 是否正確")
     elif update_time != last_time:
-        print("  偵測到更新,開始下載...")
-        x=input("如需更新請按 1")
-        if x =='1':
-            download_all(links)
+        print("  偵測到更新")
+        if confirm_download(assume_yes):
+            print("  開始下載...")
+            download_all(session, links)
             records[dataset_id] = update_time
-        
+        else:
+            print("  已略過下載")
     else:
         print("  尚無更新,跳過下載")
 
@@ -136,20 +146,24 @@ def process_dataset(dataset_id, all_rows, records):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="檢查 data.gov.tw 資料集是否更新,有更新才下載")
+    parser.add_argument("--yes", action="store_true", help="偵測到更新時不詢問,直接下載")
+    parser.add_argument("--insecure", action="store_true",
+                        help="不驗證 SSL 憑證(最後手段,有被中間人竄改資料的風險)")
+    args = parser.parse_args()
+
+    if args.insecure:
+        print("警告: 已關閉 SSL 憑證驗證,下載內容無法確認來源")
+    session = common.make_http_session(verify=not args.insecure)
+
     records = load_last_update_records()
-    all_rows = fetch_dataset_export()
+    all_rows = fetch_dataset_export(session)
 
     for dataset_id in TARGET_DATASET_IDS:
-        process_dataset(dataset_id, all_rows, records)
+        process_dataset(session, dataset_id, all_rows, records, args.yes)
 
     save_last_update_records(records)
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
- 

@@ -1,32 +1,19 @@
-import sqlite3
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
 
-plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
-plt.rcParams["axes.unicode_minus"] = False
+import common
 
-os.makedirs("./outputs", exist_ok=True)
+common.setup_matplotlib_font()
 
 # ========== 資料讀取(1-8月全部合併) ==========
-db_path = "./data.db"
-conn = sqlite3.connect(db_path)
-df = pd.read_sql("SELECT * FROM tma2_data", conn)
-conn.close()
+df = common.load_table("tma2_data")
 
-location_col = "發生地點"
-party_col = "當事者順位"
 vtype_col = "當事者區分-類別-大類別名稱-車種"
 gender_col = "當事者屬-性-別名稱"
 age_col = "當事者事故發生時年齡"
 
 # ========== 兩層篩選:第1當事人 + 北北基桃 ==========
-df_first = df[df[party_col].astype(str).str.contains("1", na=False)]
-city_pattern = "桃園市|新北市|臺北市|台北市|基隆市"
-df_first = df_first[df_first[location_col].astype(str).str.contains(city_pattern, na=False)].copy()
-
-df_first["縣市"] = df_first[location_col].str.extract(f"({city_pattern})")
-df_first["縣市"] = df_first["縣市"].replace({"台北市": "臺北市"})
+df_first = common.filter_first_party_four_cities(df)
 
 # ========== 清理1:車種排除「人」(行人) ==========
 
@@ -36,7 +23,7 @@ df_clean = df_first[df_first[vtype_col] != "人"]
 df_clean = df_clean[df_clean[gender_col].isin(["男", "女"])]
 
 # ========== 清理3:年齡排除 <=0 與 >100 ==========
-df_clean = df_clean[(df_clean[age_col] > 17) & (df_clean[age_col] <= 100)]
+df_clean = df_clean[(df_clean[age_col] > 0) & (df_clean[age_col] <= 100)]
 
 print(f"原始(第1當事人+北北基桃): {df_first.shape[0]} → 三項清理後: {df_clean.shape[0]}")
 
@@ -67,7 +54,7 @@ for i, age_series in enumerate([male_age, female_age], start=1):
     ax1.text(i, median_val, f" 中位數:{median_val:.0f}", va="center", fontsize=9)
 
 plt.tight_layout()
-plt.savefig("./outputs/06_年齡分布_性別.png", dpi=300, transparent=True, bbox_inches="tight")
+plt.savefig(common.output_path("06_年齡分布_性別.png"), dpi=300, transparent=True, bbox_inches="tight")
 plt.show()
 
 print("\n年齡統計(依性別):")
@@ -79,20 +66,13 @@ print(df_clean.groupby(gender_col)[age_col].describe()[["count", "mean", "50%", 
 main_vtypes = ["機車", "小客車(含客、貨兩用)", "慢車", "小貨車", "大貨車", "大客車"]
 df_vtype = df_clean[df_clean[vtype_col].isin(main_vtypes)]
 
-vehicle_registration = {
-    "新北市": 3_381_671,
-    "桃園市": 2_328_640,
-    "臺北市": 1_720_965,
-    "基隆市": 302_691,
-}
-city_order = ["新北市", "桃園市", "臺北市", "基隆市"]
+city_order = common.CITY_ORDER
 
 cross_vtype = pd.crosstab(df_vtype["縣市"], df_vtype[vtype_col])
 cross_vtype = cross_vtype.loc[city_order, main_vtypes]
 
-cross_vtype_weighted = cross_vtype.astype(float)
-for city in city_order:
-    cross_vtype_weighted.loc[city] = cross_vtype.loc[city] / vehicle_registration[city] * 100_000
+# 縣市是列、車種是欄,所以轉置後套用「每十萬輛車」再轉回來
+cross_vtype_weighted = common.per_100k_vehicles(cross_vtype.T).T
 
 print("\n車種 x 縣市 原始件數:")
 print(cross_vtype)
@@ -126,7 +106,7 @@ ax2.set_title("車種 × 縣市 事故率比較（車輛數權重後）", fontsi
 ax2.legend(title="縣市", loc="lower right")
 
 fig2.subplots_adjust(left=0.24, right=0.95, top=0.9, bottom=0.1)
-plt.savefig("./outputs/06_車種_縣市_權重.png", dpi=300, transparent=True, bbox_inches="tight")
+plt.savefig(common.output_path("06_車種_縣市_權重.png"), dpi=300, transparent=True, bbox_inches="tight")
 plt.show()
 
 # =========================================================
@@ -158,5 +138,5 @@ ax3.legend(title="車種", loc="upper right", fontsize=8)
 plt.xticks(rotation=30, ha="right")
 
 plt.tight_layout()
-plt.savefig("./outputs/06_年齡分組_車種.png", dpi=300, transparent=True, bbox_inches="tight")
+plt.savefig(common.output_path("06_年齡分組_車種.png"), dpi=300, transparent=True, bbox_inches="tight")
 plt.show()

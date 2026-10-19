@@ -1,52 +1,25 @@
-import sqlite3,os
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 
-plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
-plt.rcParams["axes.unicode_minus"] = False
+import common
+
+common.setup_matplotlib_font()
 
 # ========== 資料讀取 ==========
-db_path = "./data.db"
-conn = sqlite3.connect(db_path)
-df = pd.read_sql("SELECT * FROM tma2_data", conn)
-conn.close()
+df = common.load_table("tma2_data")
 
-# ========== 肇因大類合併(邏輯不變) ==========
-raw_col = "肇因研判子類別名稱-主要"
-yield_categories = [
-    "有號誌路口，轉彎車未讓直行車先行",
-    "無號誌路口，轉彎車未讓直行車先行",
-    "無號誌路口，支線道未讓幹線道先行",
-    "無號誌路口，左方車未讓右方車先行",
-    "無號誌路口，少線道未讓多線道先行",
-    "車輛未依規定暫停讓行人先行",
-    "行經圓環未依規定讓車",
-    "峻狹坡路會車，下坡車未讓上坡車先行",
-    "其他未依規定讓車",
-]
-df["肇因大類"] = df[raw_col].apply(
-    lambda x: "未依規定讓車" if x in yield_categories else x
-)
+# ========== 肇因大類合併 ==========
+df = common.merge_yield_categories(df)
 
 col_name = "肇因大類"
-location_col = "發生地點"
-party_col = "當事者順位"
 road_type_col = "道路型態大類別名稱"
 speed_col = "速限-第1當事者"
 
-# ========== 兩層篩選:第1當事人 + 北北基桃(邏輯不變) ==========
-df_first = df[df[party_col].astype(str).str.contains("1", na=False)]
-city_pattern = "桃園市|新北市|臺北市|台北市|基隆市"
-df_first = df_first[df_first[location_col].astype(str).str.contains(city_pattern, na=False)]
+# ========== 兩層篩選:第1當事人 + 北北基桃 + 排除無效肇因 ==========
+df_first = common.filter_first_party_four_cities(df, add_city_column=False)
+df_filtered = common.exclude_invalid_cause(df_first, col_name).copy()
 
-# ========== 排除無效肇因(邏輯不變) ==========
-exclude_keywords = ["尚未發現肇因", "未發現肇事因素"]
-mask_exclude = df_first[col_name].astype(str).apply(
-    lambda x: any(kw in x for kw in exclude_keywords)
-)
-df_filtered = df_first[~mask_exclude].copy()
-
-# ========== 新增:排除速限異常值(0與過小的非標準速限值) ==========
+# ========== 排除速限異常值(0與過小的非標準速限值) ==========
 # 正常速限應為30/40/50/60/70/80/90/100/110等標準值，
 # 0與個位數/十位數的零星小值判斷為資料缺失或標示異常，直接排除
 abnormal_speed_values = [0, 1, 2, 3, 4, 5, 10, 15, 20, 25]
@@ -106,9 +79,7 @@ ax.set_xlabel("該道路型態內的肇因佔比（%）")
 ax.set_title("道路型態 × 主要肇因組成比較（路口 vs 路段 vs 圓環）", fontsize=14, pad=15)
 ax.legend(title="道路型態", loc="lower right")
 
-
-os.makedirs("./outputs", exist_ok=True)
-plt.savefig("./outputs/道路型態內的肇因.png", dpi=300, transparent=True, bbox_inches="tight")
+plt.savefig(common.output_path("道路型態內的肇因.png"), dpi=300, transparent=True, bbox_inches="tight")
 
 fig.subplots_adjust(left=0.24, right=0.95, top=0.9, bottom=0.1)
 plt.show()

@@ -1,15 +1,12 @@
-import sqlite3, os, io, zipfile
-import pandas as pd
+import os, io, zipfile
 import geopandas as gpd
-import requests
-import urllib3
 import folium
 from folium.plugins import HeatMap, GroupedLayerControl
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import common
 
 # ========== 背景縣市界線(北北基桃):優先讀本機快取,沒有才向內政部(TGOS)下載 ==========
-BOUNDARY_CACHE = "./geo_boundary/北北基桃縣市界.geojson"
+BOUNDARY_CACHE = os.path.join(common.BASE_DIR, "geo_boundary", "北北基桃縣市界.geojson")
 BOUNDARY_ZIP_URL = "https://www.tgos.tw/tgos/VirtualDir/Product/85bc9c19-a076-4d83-8955-eeecf2ebdae8/COUNTY_MOI_1140318_.zip"
 
 def load_city_boundary():
@@ -18,7 +15,7 @@ def load_city_boundary():
 
     print("本機找不到縣市界線快取,正在向內政部(TGOS)下載全國縣市界線資料...")
     os.makedirs(os.path.dirname(BOUNDARY_CACHE), exist_ok=True)
-    resp = requests.get(BOUNDARY_ZIP_URL, headers={"User-Agent": "Mozilla/5.0"}, timeout=30, verify=False)
+    resp = common.make_http_session().get(BOUNDARY_ZIP_URL, timeout=30)
     resp.raise_for_status()
 
     with zipfile.ZipFile(io.BytesIO(resp.content)) as z:
@@ -38,23 +35,15 @@ city_boundary = load_city_boundary()
 city_union = city_boundary.union_all()
 
 # ========== 資料讀取 ==========
-db_path = "./data.db"
-conn = sqlite3.connect(db_path)
-df = pd.read_sql("SELECT * FROM tma2_data", conn)
-conn.close()
+df = common.load_table("tma2_data")
 
-location_col = "發生地點"
-party_col = "當事者順位"
 time_col = "發生時間"
 lon_col = "經度"
 lat_col = "緯度"
 month_col = "month"
 
 # ========== 兩層篩選:第1當事人 + 北北基桃(邏輯與其他分析腳本一致) ==========
-df_first = df[df[party_col].astype(str).str.contains("1", na=False)]
-
-city_pattern = "桃園市|新北市|臺北市|台北市|基隆市"
-df_first = df_first[df_first[location_col].astype(str).str.contains(city_pattern, na=False)].copy()
+df_first = common.filter_first_party_four_cities(df, add_city_column=False)
 
 # ========== 排除座標異常值:改用「是否落在北北基桃行政區界線內」做精確過濾 ==========
 # (取代粗略的經緯度矩形框,可一併排除外海離島座標誤植的離群點)
@@ -64,23 +53,8 @@ before_n = df_first.shape[0]
 df_first = df_first[within_mask]
 print(f"界線內過濾: {before_n} → {df_first.shape[0]}（排除{before_n - df_first.shape[0]}筆座標落在界線外的離群點）")
 
-# ========== 發生時間 → 小時 → 時段區間(沿用「依時間區分.py」的分類邏輯) ==========
-df_first["發生時段_小時"] = (df_first[time_col] // 10000)
-
-def classify_period(hour):
-    if pd.isna(hour):
-        return None
-    hour = int(hour)
-    if 6 <= hour <= 8:
-        return "早峰(06-08)"
-    elif 9 <= hour <= 15:
-        return "日間(09-15)"
-    elif 16 <= hour <= 19:
-        return "晚峰(16-19)"
-    else:
-        return "夜間(20-05)"
-
-df_first["時段區間"] = df_first["發生時段_小時"].apply(classify_period)
+# ========== 發生時間 → 小時 → 時段區間(與其他分析腳本共用 common 的分類邏輯) ==========
+df_first = common.add_period_column(df_first, time_col)
 
 print(df_first["時段區間"].value_counts())
 print(df_first[month_col].value_counts().sort_index())
@@ -91,7 +65,7 @@ center_lon = df_first[lon_col].mean()
 
 m = folium.Map(location=[center_lat, center_lon], zoom_start=11, tiles="OpenStreetMap")
 
-period_order = ["早峰(06-08)", "日間(09-15)", "晚峰(16-19)", "夜間(20-05)"]
+period_order = common.PERIOD_ORDER
 month_order = sorted(df_first[month_col].dropna().unique().tolist())
 
 # ========== 時段圖層(可複選疊圖比較) ==========
@@ -130,7 +104,6 @@ for month in month_order:
 GroupedLayerControl(groups={"時段(可複選)": period_layers}, exclusive_groups=False, collapsed=False).add_to(m)
 GroupedLayerControl(groups={"月份(單選切換)": month_layers}, exclusive_groups=True, collapsed=False).add_to(m)
 
-os.makedirs("./outputs", exist_ok=True)
-output_path = "./outputs/interactive_map.html"
+output_path = common.output_path("interactive_map.html")
 m.save(output_path)
 print(f"互動地圖已輸出: {output_path}")
