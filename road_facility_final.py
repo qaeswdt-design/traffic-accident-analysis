@@ -1,32 +1,18 @@
-import sqlite3, os
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
-plt.rcParams["axes.unicode_minus"] = False
+import common
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-db_path = os.path.join(BASE_DIR, "data.db")
-OUT = os.path.join(BASE_DIR, "outputs")
-os.makedirs(OUT, exist_ok=True)
+common.setup_matplotlib_font()
 
-conn = sqlite3.connect(db_path)
-df = pd.read_sql("SELECT * FROM tma2_data", conn)
-conn.close()
+df = common.load_table("tma2_data")
 
-location_col = "發生地點"
-party_col = "當事者順位"
 signal_col = "號誌-號誌種類名稱"
 lane_col = "車道劃分設施-分向設施大類別名稱"
 
 # ========== 兩層篩選:第1當事人 + 北北基桃(與其他頁一致) ==========
-df_first = df[df[party_col].astype(str).str.contains("1", na=False)]
-city_pattern = "桃園市|新北市|臺北市|台北市|基隆市"
-df_first = df_first[df_first[location_col].astype(str).str.contains(city_pattern, na=False)]
-df_first = df_first.copy()
-df_first["縣市"] = df_first[location_col].str.extract(f"({city_pattern})")
-df_first["縣市"] = df_first["縣市"].replace({"台北市": "臺北市"})
+df_first = common.filter_first_party_four_cities(df)
 
 # ========== 圖1：號誌種類分布 TOP5 (橫條圖，比照肇因TOP5的風格) ==========
 df_signal = df_first[df_first[signal_col].notna()]
@@ -44,7 +30,7 @@ for bar, count, ratio in zip(bars, top_signal.values, signal_ratio.values):
               f"{count:,} 件（{ratio:.1f}%）", va="center", ha="left", fontsize=10)
 ax1.set_xlim(0, max(top_signal.values) * 1.3)
 fig.subplots_adjust(left=0.32, right=0.85, top=0.85, bottom=0.12)
-plt.savefig(os.path.join(OUT, "號誌類型分布.png"), dpi=300, transparent=True, bbox_inches="tight")
+plt.savefig(common.output_path("號誌類型分布.png"), dpi=300, transparent=True, bbox_inches="tight")
 plt.close(fig)
 
 print("號誌類型 TOP5:")
@@ -54,7 +40,7 @@ print()
 
 # ========== 圖2：車道劃分設施(標線) 各縣市組成比較 (比照光線分析的分組橫條圖風格) ==========
 df_lane = df_first[df_first[lane_col].notna()]
-city_order = ["新北市", "桃園市", "臺北市", "基隆市"]
+city_order = common.CITY_ORDER
 lane_order = df_lane[lane_col].value_counts().head(4).index.tolist()
 
 cross_count = pd.crosstab(df_lane["縣市"], df_lane[lane_col])
@@ -86,7 +72,7 @@ ax.set_xlabel("該縣市內事故的車道劃分設施佔比（%）")
 ax.set_title("北北基桃各縣市車道劃分設施（標線）組成比較", fontsize=14, pad=15)
 ax.legend(title="縣市", loc="lower right")
 fig.subplots_adjust(left=0.28, right=0.95, top=0.9, bottom=0.1)
-plt.savefig(os.path.join(OUT, "車道劃分設施分布.png"), dpi=300, transparent=True, bbox_inches="tight")
+plt.savefig(common.output_path("車道劃分設施分布.png"), dpi=300, transparent=True, bbox_inches="tight")
 plt.close(fig)
 
-print("done, saved to", OUT)
+print("done, saved to", common.OUTPUT_DIR)

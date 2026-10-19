@@ -19,24 +19,25 @@ conn = sqlite3.connect(db_path)
 
 # ========== A2 資料(CSV,來源:NPA_TMA2)—— 自動掃描月份 ==========
 
-# 找出 downloads 資料夾裡所有符合 115_NPA_TMA2_0X.zip / 115_NPA_TMA2_1X.zip 命名規則的檔案
-pattern = os.path.join(download_dir, "115_NPA_TMA2_*.zip")
+# 找出 downloads 資料夾裡所有 {民國年}_NPA_TMA2_{月}.zip 的檔案(年份自動判斷,跨年不用改程式)
+pattern = os.path.join(download_dir, "*_NPA_TMA2_*.zip")
 zip_files = sorted(glob.glob(pattern))
 
 if not zip_files:
-    print(f"[A2] 警告: 在 {download_dir} 找不到任何符合 115_NPA_TMA2_*.zip 的檔案")
+    print(f"[A2] 警告: 在 {download_dir} 找不到任何符合 *_NPA_TMA2_*.zip 的檔案")
 
 for zip_path in zip_files:
     filename = os.path.basename(zip_path)
 
-    # 從檔名擷取月份數字,例如 115_NPA_TMA2_01.zip -> 01, 115_NPA_TMA2_12.zip -> 12
-    match = re.search(r"115_NPA_TMA2_(\d+)\.zip$", filename)
+    # 從檔名擷取年份與月份,例如 115_NPA_TMA2_01.zip -> 年 115 月 01
+    match = re.search(r"^(\d+)_NPA_TMA2_(\d+)\.zip$", filename)
     if not match:
-        print(f"[A2] 略過: 檔名不符合月份命名規則 -> {filename}")
+        print(f"[A2] 略過: 檔名不符合「年_NPA_TMA2_月.zip」命名規則 -> {filename}")
         continue
 
-    month_num = int(match.group(1))
-    month_id = f"115_{month_num:02d}"
+    year_num = int(match.group(1))
+    month_num = int(match.group(2))
+    month_id = f"{year_num}_{month_num:02d}"
 
     # zip 內的 csv 檔名對應規則(依你原本的命名: NPA_TMA2_{x}.csv,不補零)
     csv_name_in_zip = f"NPA_TMA2_{month_num}.csv"
@@ -62,25 +63,31 @@ for zip_path in zip_files:
 # %%
 
 # ========== A1 資料(JSON,獨立表,總體資料不分月份) ==========
-json_path = os.path.join(download_dir, "NPA_TMA1_JSON.json")  # 檔名請依實際調整
+# 不寫死檔名:取 downloads 裡最新的 NPA_TMA1*.json
+a1_candidates = glob.glob(os.path.join(download_dir, "NPA_TMA1*.json"))
 
-with open(json_path, "r", encoding="utf-8-sig") as f:
-    raw_data = json.load(f)
+if not a1_candidates:
+    print(f"[A1] 警告: 在 {download_dir} 找不到 NPA_TMA1*.json,略過 A1(資料庫內既有的 tma1_data 不動)")
+else:
+    json_path = max(a1_candidates, key=os.path.getmtime)
 
-records = raw_data["result"]["records"]
-df_a1 = pd.DataFrame(records)
-df_a1 = df_a1.dropna(subset=["發生年度"])
+    with open(json_path, "r", encoding="utf-8-sig") as f:
+        raw_data = json.load(f)
 
-# A1 是總體資料,整份表直接覆蓋重建,不需要用 month 篩選刪除
-cur = conn.execute(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name='tma1_data'"
-)
-if cur.fetchone() is not None:
-    conn.execute("DELETE FROM tma1_data")
-    conn.commit()
+    records = raw_data["result"]["records"]
+    df_a1 = pd.DataFrame(records)
+    df_a1 = df_a1.dropna(subset=["發生年度"])
 
-df_a1.to_sql("tma1_data", conn, if_exists="append", index=False)
-print(f"[A1] 完成(總體資料),共 {df_a1.shape[0]} 筆")
+    # A1 是總體資料,整份表直接覆蓋重建,不需要用 month 篩選刪除
+    cur = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='tma1_data'"
+    )
+    if cur.fetchone() is not None:
+        conn.execute("DELETE FROM tma1_data")
+        conn.commit()
+
+    df_a1.to_sql("tma1_data", conn, if_exists="append", index=False)
+    print(f"[A1] 完成(來源: {os.path.basename(json_path)}),共 {df_a1.shape[0]} 筆")
 
 # 所有資料庫操作都做完了,最後才關閉連線
 conn.close()

@@ -1,53 +1,20 @@
-
-import sqlite3 ,os
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-# 設定中文字體，避免圖表中文顯示成方框
-plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
-plt.rcParams["axes.unicode_minus"] = False
+import common
 
-# ========== 資料讀取(邏輯不變) ==========
-db_path = "./data.db"
-conn = sqlite3.connect(db_path)
-df = pd.read_sql("SELECT * FROM tma2_data", conn)
-conn.close()
+common.setup_matplotlib_font()
 
-# ========== 肇因大類合併(邏輯不變) ==========
-raw_col = "肇因研判子類別名稱-主要"
+# ========== 資料讀取 ==========
+df = common.load_table("tma2_data")
 
-yield_categories = [
-    "有號誌路口，轉彎車未讓直行車先行",
-    "無號誌路口，轉彎車未讓直行車先行",
-    "無號誌路口，支線道未讓幹線道先行",
-    "無號誌路口，左方車未讓右方車先行",
-    "無號誌路口，少線道未讓多線道先行",
-    "車輛未依規定暫停讓行人先行",
-    "行經圓環未依規定讓車",
-    "峻狹坡路會車，下坡車未讓上坡車先行",
-    "其他未依規定讓車",
-]
-
-df["肇因大類"] = df[raw_col].apply(
-    lambda x: "未依規定讓車" if x in yield_categories else x
-)
-
+# ========== 肇因大類合併 ==========
+df = common.merge_yield_categories(df)
 col_name = "肇因大類"
-location_col = "發生地點"
-party_col = "當事者順位"
 
-# ========== 三層篩選(邏輯不變) ==========
-df_first = df[df[party_col].astype(str).str.contains("1", na=False)]
-
-city_pattern = "桃園市|新北市|臺北市|台北市|基隆市"
-df_first = df_first[df_first[location_col].astype(str).str.contains(city_pattern, na=False)]
-
-exclude_keywords = ["尚未發現肇因", "未發現肇事因素"]
-mask_exclude = df_first[col_name].astype(str).apply(
-    lambda x: any(kw in x for kw in exclude_keywords)
-)
-df_filtered = df_first[~mask_exclude]
+# ========== 三層篩選:第1當事人 + 北北基桃 + 排除無效肇因 ==========
+df_first = common.filter_first_party_four_cities(df, add_city_column=False)
+df_filtered = common.exclude_invalid_cause(df_first, col_name)
 
 print(f"原始筆數: {df.shape[0]} → 第1當事人+北北基桃+排除無效肇因後: {df_filtered.shape[0]}")
 
@@ -68,9 +35,6 @@ print(top5_ratio.round(2))
 print("累積佔比:")
 print(cum_ratio.round(2))
 
-# %%
-
-
 # ========== 橫向長條圖  ==========
 fig, ax1 = plt.subplots(figsize=(10, 6))
 
@@ -79,7 +43,6 @@ bars = ax1.barh(
     top5.values,
     color="#88B0A4",
     height=0.55,
-    
 )
 
 ax1.set_title("北北基桃交通事故主要肇因 TOP 5", fontsize=15, pad=15)
@@ -99,10 +62,7 @@ for bar, count, ratio in zip(bars, top5.values, top5_ratio.values):
 # 讓右側留一點空間放文字，避免被裁切
 ax1.set_xlim(0, max(top5.values) * 1.25)
 
-
 fig.subplots_adjust(left=0.28, right=0.85, top=0.85, bottom=0.1)
-os.makedirs("./outputs", exist_ok=True)
-plt.savefig("./outputs/橫條圖碧綠.png", dpi=300, transparent=True, bbox_inches="tight")
+plt.savefig(common.output_path("橫條圖碧綠.png"), dpi=300, transparent=True, bbox_inches="tight")
 
 plt.show()
-

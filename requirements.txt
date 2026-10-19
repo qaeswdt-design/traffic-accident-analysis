@@ -1,0 +1,14 @@
+# 最低版本說明
+#   matplotlib>=3.9  boxplot(tick_labels=...) 參數（舊版叫 labels，3.9 起改名，新版已移除舊名）
+#   geopandas>=1.0   GeoSeries.union_all()（舊版是 unary_union）
+#   folium>=0.14     GroupedLayerControl（已確認 0.14.0 起有此 API）
+# 分析圖表（run_all.py 預設的 8 張）實測環境：
+#   pandas 3.0.5、numpy 2.5.3、matplotlib 3.11.2、requests 2.34.2
+# geopandas / folium 只有「延伸功能」的兩支地圖腳本會用到，本機未安裝，那兩支尚未實跑驗證。
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.9
+requests>=2.28
+certifi
+geopandas>=1.0
+folium>=0.14

@@ -1,12 +1,8 @@
 # -*- coding: utf-8 -*-
-"""
-共用邏輯模組：北北基桃交通事故分析專案
-
-把貫穿全部圖表的「資料讀取＋篩選」邏輯集中在這裡（對應簡報「核心程式邏輯」那頁），
-之後新增圖表時 import 這個檔案就好，不用再複製貼上同一段篩選邏輯。
-"""
+"""共用邏輯：所有分析腳本都 import 這個檔案，篩選條件與常數只在這裡維護一份。"""
 import os
 import sqlite3
+
 import pandas as pd
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -25,7 +21,7 @@ VEHICLE_REGISTRATION = {
     "基隆市": 302_691,
 }
 
-# 「未依規定讓車」子類別合併清單（跨圖表共用的肇因大類合併邏輯）
+# 「未依規定讓車」子類別，合併成單一大類
 YIELD_CATEGORIES = [
     "有號誌路口，轉彎車未讓直行車先行",
     "無號誌路口，轉彎車未讓直行車先行",
@@ -38,16 +34,53 @@ YIELD_CATEGORIES = [
     "其他未依規定讓車",
 ]
 
+# 時段區間與各區間的小時數（時段長短不同，比較前要除以小時數）
+PERIOD_ORDER = ["早峰(06-08)", "日間(09-15)", "晚峰(16-19)", "夜間(20-05)"]
+PERIOD_HOURS = {"早峰(06-08)": 3, "日間(09-15)": 7, "晚峰(16-19)": 4, "夜間(20-05)": 10}
+
+# 中文字型依序嘗試：Windows → macOS → Linux
+CJK_FONTS = [
+    "Microsoft JhengHei", "PingFang TC", "Heiti TC",
+    "Noto Sans CJK TC", "Noto Sans TC", "WenQuanYi Zen Hei", "DejaVu Sans",
+]
+
+def make_http_session(verify=True):
+    """建立下載用的 requests Session，預設完整驗證 SSL 憑證。
+
+    內政部下載網址（opdadm.moi.gov.tw）的政府憑證鏈缺少 Subject Key Identifier，
+    Python 3.13+ 的 X.509 嚴格模式會因此拒絕連線。這裡只關掉「嚴格模式」這一項，
+    憑證鏈、有效期、網域比對都照常驗證。verify=False 只留給使用者明確傳 --insecure 時用。
+    """
+    import ssl
+    import certifi
+    import requests
+    from requests.adapters import HTTPAdapter
+
+    class _RelaxedStrictAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            ctx = ssl.create_default_context(cafile=certifi.where())
+            ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+            kwargs["ssl_context"] = ctx
+            super().init_poolmanager(*args, **kwargs)
+
+    session = requests.Session()
+    session.headers["User-Agent"] = "Mozilla/5.0"
+    if verify:
+        session.mount("https://", _RelaxedStrictAdapter())
+    else:
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        session.verify = False
+    return session
+
 
 def setup_matplotlib_font():
-    """設定中文字體，避免圖表中文顯示成方框。所有繪圖腳本開頭都應呼叫一次。"""
     import matplotlib.pyplot as plt
-    plt.rcParams["font.sans-serif"] = ["Microsoft JhengHei"]
+    plt.rcParams["font.sans-serif"] = CJK_FONTS
     plt.rcParams["axes.unicode_minus"] = False
 
 
 def load_table(table_name="tma2_data", db_path=None):
-    """讀取指定資料表（預設 tma2_data，即 A1+A2 合併的全量資料）。"""
     conn = sqlite3.connect(db_path or DB_PATH)
     try:
         return pd.read_sql(f"SELECT * FROM {table_name}", conn)
@@ -56,46 +89,76 @@ def load_table(table_name="tma2_data", db_path=None):
 
 
 def filter_first_party_four_cities(df, location_col="發生地點", party_col="當事者順位",
-                                    add_city_column=True):
+                                   add_city_column=True):
+    """只留第 1 當事者 + 北北基桃。
+
+    順位必須「數值等於 1」；用字串 contains("1") 會把 10、11、21… 也算進來而重複計數。
+    A1 的順位欄是字串、A2 是浮點數，所以先統一轉成數字再比較。
     """
-    每個圖表都先套用同一套篩選：第1當事者 + 北北基桃四縣市
-    （對應簡報「核心程式邏輯」頁展示的那段程式碼）。
-    """
-    df_first = df[df[party_col].astype(str).str.contains("1", na=False)]
-    df_first = df_first[df_first[location_col].astype(str).str.contains(CITY_PATTERN, na=False)]
-    df_first = df_first.copy()
+    is_first = pd.to_numeric(df[party_col], errors="coerce") == 1
+    in_cities = df[location_col].astype(str).str.contains(CITY_PATTERN, na=False)
+    df_first = df[is_first & in_cities].copy()
     if add_city_column:
         df_first["縣市"] = df_first[location_col].str.extract(f"({CITY_PATTERN})")
         df_first["縣市"] = df_first["縣市"].replace({"台北市": "臺北市"})
     return df_first
 
 
+def restrict_a1_to_a2_period(df_a1, df_a2, date_col="發生日期"):
+    """A1（整份 JSON）常比 A2（逐月 CSV）多出較晚的日期，這裡把 A1 截到 A2 的最後一天，
+    讓死亡數與受傷數落在同一段期間。"""
+    cutoff = pd.to_numeric(df_a2[date_col], errors="coerce").max()
+    a1_dates = pd.to_numeric(df_a1[date_col], errors="coerce")
+    kept = df_a1[a1_dates <= cutoff].copy()
+    print(f"A1 截到 A2 最後日期 {int(cutoff)}: {len(df_a1)} → {len(kept)} 筆（排除 {len(df_a1) - len(kept)} 筆較晚的資料）")
+    return kept
+
+
+def add_period_column(df, time_col="發生時間"):
+    """發生時間是不補零的 HHMMSS 整數，除以 10000 取小時，再歸入時段區間。"""
+    df = df.copy()
+    df["發生時段_小時"] = df[time_col] // 10000
+    df["時段區間"] = df["發生時段_小時"].apply(classify_period)
+    return df
+
+
+def classify_period(hour):
+    if pd.isna(hour):
+        return None
+    hour = int(hour)
+    if 6 <= hour <= 8:
+        return "早峰(06-08)"
+    if 9 <= hour <= 15:
+        return "日間(09-15)"
+    if 16 <= hour <= 19:
+        return "晚峰(16-19)"
+    return "夜間(20-05)"
+
+
 def merge_yield_categories(df, raw_col="肇因研判子類別名稱-主要", new_col="肇因大類"):
-    """把多種「未依規定讓車」子類別合併成單一大類，跨圖表共用。"""
     df = df.copy()
     df[new_col] = df[raw_col].apply(lambda x: "未依規定讓車" if x in YIELD_CATEGORIES else x)
     return df
 
 
 def exclude_invalid_cause(df, col_name="肇因大類",
-                           exclude_keywords=("尚未發現肇因", "未發現肇事因素")):
-    """排除「尚未發現肇因」等無效肇因列。"""
+                          exclude_keywords=("尚未發現肇因", "未發現肇事因素")):
     mask_exclude = df[col_name].astype(str).apply(lambda x: any(kw in x for kw in exclude_keywords))
     return df[~mask_exclude]
 
 
-def weight_by_vehicle_registration(cross_count_df, city_order=None):
-    """把縣市別的事故件數換算成「每十萬輛車事故件數」，消除縣市規模差異。"""
+def per_100k_vehicles(count_df, city_order=None):
+    """欄為縣市的件數表 → 每十萬輛車事故件數。"""
     city_order = city_order or CITY_ORDER
-    result = cross_count_df.copy()
+    result = count_df.astype(float)
     for city in city_order:
-        result[city] = cross_count_df[city] / VEHICLE_REGISTRATION[city] * 100_000
+        result[city] = count_df[city] / VEHICLE_REGISTRATION[city] * 100_000
     return result
 
 
-def ensure_output_dir():
+def output_path(filename):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    return OUTPUT_DIR
+    return os.path.join(OUTPUT_DIR, filename)
 
 
 if __name__ == "__main__":
