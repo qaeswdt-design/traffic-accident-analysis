@@ -1,0 +1,34 @@
+﻿# 原始資料與資料庫（體積大，不進版控）
+*.db
+*.zip
+*.csv
+*.json
+
+# 圖片與簡報等二進位輸出
+*.png
+*.jpg
+*.jpeg
+*.pptx
+*.pdf
+
+# 執行後自動產生的資料夾
+downloads/
+outputs/
+結果/
+收集資料/
+geo_boundary/
+
+
+
+# 編輯器設定與環境變數
+.vscode/
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+Thumbs.db
+.DS_Store
+
