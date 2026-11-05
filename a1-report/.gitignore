@@ -1,9 +1,9 @@
 # 根目錄的 .gitignore 有 geo_boundary/ 規則,這裡要保留地圖邊界檔(產生報告需要它)
 !geo_boundary/
 
-# 執行後自動產生
+# 執行後自動產生(Docker 監看用的輸出)
+# 注意:A1_死亡事故互動報告.html 是刻意放進版控的成品快照
 public/
-A1_死亡事故互動報告*.html
 
 # Python
 __pycache__/
