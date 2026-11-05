@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """產生 A1(死亡事故)互動式 HTML 報告。
 
-資料來源:專案根目錄的 data.db(由 資料塞入資料庫.py 建立)。
+資料來源:本資料夾的 data.db(由 當前資料下載更新.py 下載、資料塞入資料庫.py 匯入)。
 輸出:A1_死亡事故互動報告.html(單一檔案、完全離線可開,面試現場不需要網路)。
 
 分工:
@@ -23,12 +23,11 @@ import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# 本資料夾(a1-report/)位於專案根目錄底下;common.py、data.db 都在根目錄,
-# 不另放複本,讓篩選規則與資料只有一份。Docker 內根目錄掛載在 /source(環境變數 TRAFFIC_SOURCE_DIR)。
-ROOT_DIR = os.path.abspath(os.environ.get("TRAFFIC_SOURCE_DIR") or os.path.join(HERE, ".."))
-sys.path.insert(0, ROOT_DIR)
+# 本資料夾是自給自足的:common.py(篩選規則)、data.db 與下載/匯入腳本都在這裡。
+# 腳本所在資料夾會自動排在 sys.path 最前面,所以 import common 讀的是本資料夾這份。
+DATA_DIR = os.path.abspath(os.environ.get("TRAFFIC_SOURCE_DIR") or HERE)
 
-import common  # noqa: E402  (在專案根目錄)
+import common  # noqa: E402
 
 TEMPLATE = os.path.join(HERE, "a1_report_template.html")
 DEFAULT_OUT = os.path.join(HERE, "A1_死亡事故互動報告.html")
@@ -182,9 +181,8 @@ def build_geo(cos_lat, eps_deg=0.0012, skip=("金門縣", "連江縣")):
 
 # ---------- 資料來源 ----------
 def resolve_source_dir(cli_value=None):
-    """決定 data.db 在哪:命令列 --source-dir > 專案根目錄(環境變數 TRAFFIC_SOURCE_DIR 或上一層)。
-    專案根目錄是下載與匯入資料的地方,直接讀它,就不會有過期的複本。"""
-    for cand in (cli_value, ROOT_DIR):
+    """決定 data.db 在哪:命令列 --source-dir > 環境變數 TRAFFIC_SOURCE_DIR > 本資料夾。"""
+    for cand in (cli_value, DATA_DIR):
         if cand and os.path.isfile(os.path.join(cand, "data.db")):
             return os.path.abspath(cand)
     raise SystemExit("找不到 data.db。請用 --source-dir 指定,或設定環境變數 TRAFFIC_SOURCE_DIR。")
@@ -202,7 +200,7 @@ def main():
     ap.add_argument("-o", "--output", default=None)
     ap.add_argument("--source-dir", default=None,
                     help="data.db 與 last_update.json 所在資料夾(預設:環境變數 TRAFFIC_SOURCE_DIR,"
-                         "否則是本資料夾的上一層,也就是專案根目錄)")
+                         "否則是本資料夾)")
     ap.add_argument("--version-json", default=None,
                     help="另外輸出 version.json(資料指紋),網頁會定時檢查它,有新資料時提示重新整理")
     args = ap.parse_args()

@@ -18,7 +18,7 @@ import time
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PUBLIC = os.path.join(BASE, "public")
-SOURCE = os.environ.get("TRAFFIC_SOURCE_DIR") or os.path.dirname(BASE)  # 專案根目錄(data.db 所在)
+SOURCE = os.environ.get("TRAFFIC_SOURCE_DIR") or BASE  # data.db 所在資料夾(預設就是本資料夾)
 DB = os.path.join(SOURCE, "data.db")
 PORT = int(os.environ.get("PORT", "8003"))
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "15"))

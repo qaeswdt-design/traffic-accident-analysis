@@ -1,3 +1,7 @@
-# 產生 A1 互動報告只需要這兩個(common.py 的繪圖、下載功能是延遲載入,報告用不到)
+# 產生報告:pandas、numpy
+# 下載官方資料(當前資料下載更新.py):requests、certifi
+# (common.py 的 matplotlib 繪圖是延遲載入,報告與下載都用不到)
 pandas>=2.0
 numpy>=1.24
+requests>=2.28
+certifi
