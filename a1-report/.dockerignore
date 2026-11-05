@@ -1,0 +1,4 @@
+# 建映像檔只需要 requirements.txt，其他都是執行時掛載進去的
+# (這個資料夾有 360MB 的 data.db 與大量簡報，絕對不能送進 build context)
+*
+!requirements.txt

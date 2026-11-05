@@ -1,0 +1,13 @@
+# 根目錄的 .gitignore 有 geo_boundary/ 規則,這裡要保留地圖邊界檔(產生報告需要它)
+!geo_boundary/
+
+# 執行後自動產生
+public/
+A1_死亡事故互動報告*.html
+
+# Python
+__pycache__/
+*.pyc
+
+# 本機專用檔案,不進版控
+private/

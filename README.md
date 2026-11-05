@@ -27,7 +27,8 @@
 ├── requirements.txt           # 套件與最低版本
 ├── 當前資料下載更新.py          # 比對官方更新時間,有更新才下載
 ├── 資料塞入資料庫.py            # 將下載的 CSV/JSON 匯入 SQLite (data.db)
-└── 各章節分析腳本 (*.py)        # 每支腳本都 import common,產生對應章節的圖表
+├── 各章節分析腳本 (*.py)        # 每支腳本都 import common,產生對應章節的圖表
+└── a1-report/                 # 第二版:A1 死亡事故互動式 HTML 報告(Docker、自動更新),見該資料夾 README
 ```
 
 所有分析腳本都透過 `common.py` 篩選資料,篩選條件只在一個地方維護,修正一次全部生效。

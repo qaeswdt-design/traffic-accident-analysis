@@ -1,0 +1,23 @@
+# 資料夾名稱是中文，Compose 無法自動取專案名稱，所以這裡指定
+name: traffic-a1-v2
+
+services:
+  # 讀專案根目錄(上一層)的 data.db 產生報告、用網頁開出來，並監看 data.db：
+  # 你在根目錄下載/匯入新資料後，幾十秒內會自動重新產生報告，開著的網頁會提示重新整理
+  report:
+    build: .
+    image: traffic-a1-v2:latest
+    container_name: traffic-a1-v2
+    working_dir: /app
+    ports:
+      - "127.0.0.1:8003:8003"     # 只有這台電腦能開；要讓手機連，改成 "8003:8003"
+                                  # 8001=小說爬蟲、8002=ytmusic_web，所以這裡用 8003
+    volumes:
+      - .:/app                    # 這個資料夾：程式與輸出(public/)
+      - ..:/source:ro             # 專案根目錄(唯讀)：data.db、last_update.json、common.py 直接用它
+    environment:
+      TRAFFIC_SOURCE_DIR: /source
+      AUTO_BUILD: "1"             # 啟動時先重新產生一次(約 1 分鐘)；改成 "0" 就先用上次的 public/index.html
+      POLL_SECONDS: "15"          # 每幾秒檢查一次 data.db 有沒有變
+      SETTLE_SECONDS: "20"        # 變動後等幾秒沒再變(匯入寫完)才重新產生
+    restart: "no"
