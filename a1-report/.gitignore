@@ -1,5 +1,14 @@
-# 根目錄的 .gitignore 有 geo_boundary/ 規則,這裡要保留地圖邊界檔(產生報告需要它)
+# 根目錄的 .gitignore 擋了 *.json、*.csv、geo_boundary/,這裡要把「報告與元件需要的檔案」放行
 !geo_boundary/
+!geo_boundary/roads_major.json
+!reusable_table/*.json
+!reusable_table/examples/*.json
+!reusable_table/examples/*.csv
+
+# 資料(體積大或可重新下載,不進版控)
+*.db
+downloads/
+last_update.json
 
 # 執行後自動產生(Docker 監看用的輸出)
 # 注意:A1_死亡事故互動報告.html 是刻意放進版控的成品快照
@@ -11,3 +20,4 @@ __pycache__/
 
 # 本機專用檔案,不進版控
 private/
+A1_死亡事故互動報告_完整版*.html

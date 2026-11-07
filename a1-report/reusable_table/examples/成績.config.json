@@ -1,0 +1,33 @@
+{
+  "title": "成績明細(範例:換一份資料只要改設定)",
+  "height": 420,
+  "pageSize": 5,
+  "pageSizes": [5, 10],
+  "computed": {
+    "等第": { "from": "分數", "rules": [ { "gte": 90, "label": "優" }, { "gte": 80, "label": "甲" }, { "gte": 60, "label": "乙" }, { "label": "不及格" } ] }
+  },
+  "defaultSort": { "key": "日期", "dir": "desc" },
+  "columns": [
+    { "key": "日期", "label": "日期" },
+    { "key": "姓名", "label": "姓名" },
+    { "key": "班級", "label": "班級" },
+    { "key": "科目", "label": "科目" },
+    { "key": "分數", "label": "分數", "type": "number" },
+    { "key": "等第", "label": "等第" },
+    { "key": "備註", "label": "備註", "default": false }
+  ],
+  "search": { "fields": ["日期", "姓名", "班級", "科目", "等第", "備註"] },
+  "filters": [
+    { "type": "select", "key": "班級", "label": "班級", "field": "班級" },
+    { "type": "select", "key": "科目", "label": "科目", "field": "科目" },
+    { "type": "select", "key": "等第", "label": "等第", "field": "等第", "order": ["優", "甲", "乙", "不及格"] },
+    { "type": "check", "key": "high", "label": "90 分以上", "field": "分數", "op": ">=", "value": 90 }
+  ],
+  "detail": [
+    { "label": "姓名 / 班級", "template": "{姓名} / {班級}" },
+    { "label": "科目", "template": "{科目}" },
+    { "label": "分數(等第)", "template": "{分數}({等第})" },
+    { "label": "備註", "template": "{備註}", "hideIfEmpty": true }
+  ],
+  "csv": { "filename": "成績.csv" }
+}

@@ -1,0 +1,77 @@
+/* charts.css — 與 charts.js 搭配。把圖表放在 class="ch-root" 的容器內;顏色全是 CSS 變數,跟隨系統深色模式。
+ * 設計原則(來自報告):細的標記、段與段之間 1.5–2px 底色縫、淡色格線、文字用文字色(不用系列色)、
+ * 類別色固定順序(--ch-s1、--ch-s2、--ch-s3、--ch-other),類別超過 3–4 個就改用單一色加分組。 */
+.ch-root{
+  --ch-bg:#fcfcfb; --ch-bg2:#f0efec; --ch-ink:#0b0b0b; --ch-ink2:#52514e; --ch-ink3:#77766f; --ch-line:#e2e0d9; --ch-grid:#e9e7e1;
+  --ch-s1:#2a78d6; --ch-s2:#eb6834; --ch-s3:#1baf7a; --ch-other:#9a9990; --ch-warn:#eb6834;
+  color:var(--ch-ink); font:14px/1.6 "Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  .ch-root{ --ch-bg:#1a1a19; --ch-bg2:#262625; --ch-ink:#f0efec; --ch-ink2:#c3c2b7; --ch-ink3:#9a998f; --ch-line:#383835; --ch-grid:#2c2c2a;
+    --ch-s1:#3987e5; --ch-s2:#d95926; --ch-s3:#199e70; --ch-other:#85847b; --ch-warn:#d95926; }
+}
+.ch-root *{box-sizing:border-box}
+.ch-muted{color:var(--ch-ink2)}
+.ch-btn{border:1px solid var(--ch-line);background:var(--ch-bg);color:var(--ch-ink);border-radius:8px;padding:5px 11px;font:inherit;font-size:13px;cursor:pointer}
+.ch-btn:hover{border-color:var(--ch-ink3)} .ch-btn:disabled{opacity:.4;cursor:default}
+
+/* 1. barList */
+.ch-blist{display:flex;flex-direction:column;gap:3px}
+.ch-brow{display:grid;grid-template-columns:minmax(84px,38%) 1fr auto;gap:10px;align-items:center;border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:3px 6px;border-radius:6px;width:100%;cursor:pointer}
+.ch-brow:hover{background:var(--ch-bg2)}
+.ch-brow .lab{font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ch-brow .trk{height:14px;position:relative}
+.ch-brow .fill{position:absolute;left:0;top:0;bottom:0;background:var(--ch-s1);border-radius:0 4px 4px 0;min-width:2px}
+.ch-brow .val{font-size:13px;color:var(--ch-ink2);min-width:84px;text-align:right;font-variant-numeric:tabular-nums}
+.ch-brow.sel{background:var(--ch-bg2)} .ch-brow.sel .lab{font-weight:700}
+.ch-brow.dim .fill{opacity:.3} .ch-brow.dim .lab,.ch-brow.dim .val{color:var(--ch-ink3)}
+.ch-brow.ph{visibility:hidden;pointer-events:none}
+.ch-pager{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:10px;font-size:13px;color:var(--ch-ink2)}
+
+/* SVG 共用 */
+.ch-root svg text{font-family:inherit}
+.ch-root svg .ch-t{fill:var(--ch-ink2);font-size:12px} .ch-root svg .ch-t3{fill:var(--ch-ink3);font-size:11px} .ch-root svg .ch-tb{fill:var(--ch-ink);font-size:13px}
+.ch-root svg .ch-gl{stroke:var(--ch-grid);stroke-width:1}
+.ch-root svg .ch-band{fill:var(--ch-bg2);opacity:.6}
+.ch-root svg .ch-hit{fill:transparent;cursor:pointer} .ch-root svg .ch-hit:hover{fill:rgba(42,120,214,.08)}
+/* 3. forest */
+.ch-root svg .ch-ci{stroke:var(--ch-ink2);stroke-width:2;stroke-linecap:round}
+.ch-root svg .ch-dot{fill:var(--ch-s1);stroke:var(--ch-bg);stroke-width:2}
+.ch-root svg .ch-dot.hollow{fill:var(--ch-bg);stroke:var(--ch-s1)} .ch-root svg .ch-dot.sel{fill:var(--ch-s2)}
+.ch-root svg .ch-base{stroke:var(--ch-ink3);stroke-dasharray:4 4;stroke-width:1}
+/* 4. stackedBars */
+.ch-stk{display:flex;flex-direction:column;gap:5px}
+.ch-srow{display:grid;grid-template-columns:70px 1fr 56px;gap:8px;align-items:center;font-size:13px}
+.ch-srow button.l{border:0;background:transparent;color:inherit;font:inherit;text-align:left;padding:2px 4px;border-radius:5px;cursor:pointer}
+.ch-srow button.l:hover{background:var(--ch-bg2)} .ch-srow.sel button.l{font-weight:700;background:var(--ch-bg2)}
+.ch-tr{display:flex;height:20px;gap:2px} .ch-seg{min-width:0;border-radius:0 4px 4px 0}
+.ch-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--ch-ink2);margin-bottom:8px}
+.ch-legend i,.ch-root .ch-legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+/* 5. heatmap */
+.ch-mx{border-collapse:separate;border-spacing:3px;width:100%;font-size:13px}
+.ch-mx th{font-weight:600;color:var(--ch-ink2);text-align:center;padding:4px;font-size:12.5px} .ch-mx th.rl{text-align:left}
+.ch-mx td{text-align:center;padding:8px 4px;border-radius:6px;cursor:pointer;border:1px solid transparent}
+.ch-mx td:hover{border-color:var(--ch-ink)} .ch-mx td.sel{outline:2px solid var(--ch-s2)}
+.ch-mx td small{display:block;opacity:.8;font-size:11.5px}
+.ch-mx td.tot{background:transparent;cursor:default;color:var(--ch-ink2)} .ch-mx td.tot:hover{border-color:transparent}
+/* 6. geoScatter */
+.ch-mapbox{position:relative}
+.ch-mapbox svg{width:100%;height:auto;max-height:640px;display:block;user-select:none;-webkit-user-select:none}
+.ch-mapctl{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:6px}
+.ch-mapctl button{width:38px;height:38px;border-radius:9px;border:1px solid var(--ch-line);background:var(--ch-bg);color:var(--ch-ink);font-size:20px;line-height:1;cursor:pointer}
+.ch-mapctl button:disabled{opacity:.4;cursor:default}
+.ch-root svg .ch-county{fill:var(--ch-bg2);stroke:var(--ch-ink3);stroke-opacity:.55;stroke-width:1;vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.ch-root svg .ch-county.focus{fill:var(--ch-line)}
+.ch-root svg .ch-pt{stroke:var(--ch-bg);stroke-width:1.5;vector-effect:non-scaling-stroke;opacity:.9;cursor:pointer}
+.ch-root svg .ch-pt:hover{stroke:var(--ch-ink);stroke-width:2.5}
+.ch-root svg .ch-ghost{fill:var(--ch-ink3);opacity:.28}
+/* 線圖層範例(道路):className 由 layers 傳入。.detail 要放大 2 倍以上才顯示;拖曳中 .minor/.detail 暫時隱藏(手機才不會卡) */
+.ch-root svg .ch-road{fill:none;stroke:var(--ch-ink3);stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke;pointer-events:none}
+.ch-root svg .ch-road.major{stroke:var(--ch-ink2);stroke-width:2.2;opacity:.8}
+.ch-root svg .ch-road.minor{stroke-width:.9;opacity:.5}
+.ch-root svg .ch-road.detail{stroke-width:.6;opacity:.35;display:none}
+.ch-root svg.z2 .ch-road.detail{display:inline}
+.ch-root svg.moving .ch-road.detail{display:none}
+/* 提示框 */
+.ch-tip{position:fixed;display:none;z-index:50;pointer-events:none;background:#0b0b0b;color:#fcfcfb;padding:7px 10px;border-radius:8px;font-size:12.5px;line-height:1.5;max-width:300px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+@media (prefers-color-scheme: dark){ .ch-tip{background:#f0efec;color:#121211} }

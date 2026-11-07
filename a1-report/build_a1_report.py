@@ -28,10 +28,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.abspath(os.environ.get("TRAFFIC_SOURCE_DIR") or HERE)
 
 import common  # noqa: E402
+import data_quality  # noqa: E402
 
 TEMPLATE = os.path.join(HERE, "a1_report_template.html")
 DEFAULT_OUT = os.path.join(HERE, "A1_死亡事故互動報告.html")
 GML_PATH = os.path.join(HERE, "geo_boundary", "COUNTY_MOI_1140318.gml")
+ROADS_PATH = os.path.join(HERE, "geo_boundary", "roads_major.json")   # 由 build_roads.py 產生(可省略)
 
 COUNTY_RE = r"^(.{2}[縣市])"
 COUNTY_FIX = {"台北市": "臺北市", "台中市": "臺中市", "台南市": "臺南市", "台東縣": "臺東縣"}
@@ -48,6 +50,85 @@ VEH_MAP = {
 }
 AGE_ORDER = ["未滿18", "18-29", "30-39", "40-49", "50-59", "60-69", "70以上", "年齡不詳"]
 LIGHT_ORDER = ["有照明且開啟", "有照明未開啟或故障", "無照明", "不明"]
+# 雨量等級:以事故當天「該縣市測站日雨量平均」分級(氣象署 CODiS,由 氣象資料下載更新.py 下載到 data.db)
+RAIN_ORDER = ["無雨", "小雨(0.1–10 mm)", "中雨(10–40 mm)", "大雨(40 mm 以上)", "無氣象資料"]
+
+
+def rain_label(mm):
+    if mm is None or pd.isna(mm):
+        return "無氣象資料"
+    if mm < 0.1:
+        return "無雨"
+    if mm < 10:
+        return "小雨(0.1–10 mm)"
+    if mm < 40:
+        return "中雨(10–40 mm)"
+    return "大雨(40 mm 以上)"
+
+
+def load_weather(db_path):
+    """讀 weather_daily,整理成「縣市 × 日期」:雨量取縣內各測站的平均(有資料的測站才算)。沒有這張表就回傳 None。"""
+    import sqlite3
+    try:
+        conn = sqlite3.connect(db_path)
+        w = pd.read_sql("SELECT county, date, precip_mm, temp_mean, temp_max, temp_min, station_id FROM weather_daily", conn)
+        conn.close()
+    except Exception:
+        return None
+    if w.empty:
+        return None
+    g = w.groupby(["county", "date"]).agg(precip=("precip_mm", "mean"), tmean=("temp_mean", "mean"), tmax=("temp_max", "max"),
+                                         tmin=("temp_min", "min"), stations=("station_id", "nunique")).reset_index()
+    g["date_int"] = g["date"].str.replace("-", "").astype(int)
+    return g
+
+
+def add_weather(d, wx):
+    """把當天縣市雨量、氣溫與雨量等級接到事故資料上;沒有氣象資料的日子標為「無氣象資料」,不刪除。"""
+    d = d.copy()
+    d["date_int"] = pd.to_numeric(d["發生日期"], errors="coerce").astype("Int64")
+    if wx is None:
+        d["雨量mm"], d["氣溫"] = None, None
+    else:
+        m = d.merge(wx[["county", "date_int", "precip", "tmean"]].astype({"date_int": "Int64"}), how="left",
+                    left_on=["縣市", "date_int"], right_on=["county", "date_int"])
+        d["雨量mm"], d["氣溫"] = m["precip"].values, m["tmean"].values
+    d["雨量等級"] = [rain_label(v) for v in d["雨量mm"]]
+    return d
+
+
+def weather_checks(a1):
+    """氣象資料的體檢:涵蓋率,以及警方登載的「天候」欄位與氣象署雨量是否相符(不一致的只標註,不剔除)。"""
+    n = len(a1)
+    have = int((a1["雨量等級"] != "無氣象資料").sum())
+    rain_lab = a1["天候名稱"] == "雨"
+    dry_but_rain = int((rain_lab & (a1["雨量等級"] == "無雨")).sum())
+    clear_but_heavy = int(((a1["天候名稱"] == "晴") & (a1["雨量等級"] == "大雨(40 mm 以上)")).sum())
+    pct = lambda a, b: f"{a:,}({a / b * 100:.1f}%)" if b else "0"
+    return [
+        {"id": "wx_cover", "name": "氣象資料涵蓋(事故能對到當天縣市雨量)", "a1": f"{have:,} / {n:,}({have / n * 100:.1f}%)" if n else "—", "a2": "同左(分母同樣對照)",
+         "status": "ok" if n and have / n >= 0.99 else ("flag" if n and have / n >= 0.9 else "warn"),
+         "note": "對不到的事故標為「無氣象資料」並保留,不推測雨量。"},
+        {"id": "wx_rain_label", "name": "天候欄位為「雨」,但縣市當天雨量為 0", "a1": pct(dry_but_rain, int(rain_lab.sum())), "a2": "—",
+         "status": "ok" if not dry_but_rain else "flag",
+         "note": "降雨有地區差異(縣內測站可能剛好沒下),或警方登載與雨量不同;只標註,兩個欄位並存,不互相覆蓋。"},
+        {"id": "wx_clear_heavy", "name": "天候欄位為「晴」,但縣市當天大雨(≥40 mm)", "a1": str(clear_but_heavy), "a2": "—",
+         "status": "ok" if not clear_but_heavy else "flag", "note": "降雨可能發生在事故以外的時段;只標註,不剔除。"},
+    ]
+
+
+def weather_summary(wx, start_int, end_int):
+    """各縣市天氣背景(報告期間內)。"""
+    if wx is None:
+        return None
+    w = wx[(wx["date_int"] >= start_int) & (wx["date_int"] <= end_int)]
+    out = {}
+    for c, g in w.groupby("county"):
+        out[c] = {"days": int(g["date"].nunique()), "stations": int(g["stations"].max()),
+                  "rainDays": int((g["precip"] >= 1).sum()), "wetShare": float((g["precip"] >= 0.1).mean()),
+                  "heavyDays": int((g["precip"] >= 40).sum()), "totalMm": float(g["precip"].sum()),
+                  "tmean": float(g["tmean"].mean()), "tmax": float(g["tmax"].max()), "tmin": float(g["tmin"].min())}
+    return {"byCounty": out, "source": "中央氣象署 CODiS 氣象觀測資料查詢系統(逐日資料)", "levels": RAIN_ORDER}
 PERIOD_ORDER = common.PERIOD_ORDER
 WEEKDAY = ["一", "二", "三", "四", "五", "六", "日"]
 
@@ -142,6 +223,16 @@ def _dp(points, eps):
     return points[keep]
 
 
+def load_roads():
+    """讀 build_roads.py 產生的主要道路;沒有這個檔案就不畫道路(報告其餘功能照常)。"""
+    if not os.path.isfile(ROADS_PATH):
+        print("(沒有 geo_boundary/roads_major.json,地圖不含道路;可執行 build_roads.py 產生)")
+        return None
+    with open(ROADS_PATH, encoding="utf-8") as f:
+        d = json.load(f)
+    return {"paths": d["paths"], "source": d.get("source", ""), "osmTimestamp": d.get("osmTimestamp", "")}
+
+
 def build_geo(cos_lat, eps_deg=0.0012, skip=("金門縣", "連江縣")):
     """讀內政部縣市界 GML → 每縣市一條 SVG path(座標為 經度*cos*1000, -緯度*1000 的整數)。"""
     ns = {"gml": "http://www.opengis.net/gml"}
@@ -212,18 +303,25 @@ def main():
     token = db_token(common.DB_PATH)
     print(f"資料庫:{common.DB_PATH}")
 
-    a1_raw = common.load_table("tma1_data")
+    a1_all = common.load_table("tma1_data")
     a2_raw = common.load_table("tma2_data")
-    a1_raw = common.restrict_a1_to_a2_period(a1_raw, a2_raw)
+    quality = data_quality.run_checks(a1_all, a2_raw)          # 體檢:不刪資料,只標註與統計
+    cutoff_int = int(pd.to_numeric(a2_raw["發生日期"], errors="coerce").max())
+    a1_raw = common.restrict_a1_to_a2_period(a1_all, a2_raw)
 
     a1 = prep(a1_raw)
     a2 = prep(a2_raw)
+    wx = load_weather(common.DB_PATH)
+    a1, a2 = add_weather(a1, wx), add_weather(a2, wx)
+    if wx is None:
+        print("(data.db 沒有氣象資料;可執行 氣象資料下載更新.py 取得。報告不含天氣分析)")
     cos_lat = 0.916  # cos(23.7°),地圖等角投影用
 
     # --- A1 事故明細(每起事故一列) ---
     dd = a1["死亡受傷人數"].str.extract(r"死亡(\d+);受傷(\d+)").astype(int)
     rows = []
-    for (_, r), (dead, hurt) in zip(a1.iterrows(), dd.values):
+    flags = data_quality.row_flags(a1)                         # A1 每列的資料標註(保留、不刪除)
+    for (ix, r), (dead, hurt) in zip(a1.iterrows(), dd.values):
         date = pd.Timestamp(str(r["發生日期"]))
         rows.append({
             "d": date.strftime("%Y-%m-%d"),
@@ -252,24 +350,30 @@ def main():
             "sh": r["道路型態大類別名稱"],
             "sg": r["號誌-號誌種類名稱"],
             "sp": speed_group(r["速限-第1當事者"]),
+            "t": (lambda z: f"{z[:2]}:{z[2:4]}")(str(r["發生時間"]).zfill(6)),
             "hr": r["肇事逃逸類別名稱-是否肇逃"],
+            "fl": flags.get(ix, []),
+            "rain": None if pd.isna(r["雨量mm"]) else round(float(r["雨量mm"]), 1),
+            "tm": None if pd.isna(r["氣溫"]) else round(float(r["氣溫"]), 1),
+            "rl": r["雨量等級"],
         })
 
     # --- A2 聯合分組計數(縣市 × 車種 × 時段 × 年齡 × 照明):當「每千件傷亡事故中的死亡事故」的分母 ---
-    g = a2.groupby(["縣市", "車種組", "時段", "年齡組", "照明"]).size().reset_index(name="n")
+    g = a2.groupby(["縣市", "車種組", "時段", "年齡組", "照明", "雨量等級"]).size().reset_index(name="n")
     idx = {
         "c": {v: i for i, v in enumerate(COUNTY_ORDER)},
         "veh": {v: i for i, v in enumerate(VEH_ORDER)},
         "per": {v: i for i, v in enumerate(PERIOD_ORDER)},
         "ag": {v: i for i, v in enumerate(AGE_ORDER)},
         "l": {v: i for i, v in enumerate(LIGHT_ORDER)},
+        "rl": {v: i for i, v in enumerate(RAIN_ORDER)},
     }
     a2_rows = []
     for _, r in g.iterrows():
         if r["時段"] not in idx["per"]:
             continue
         a2_rows.append([idx["c"][r["縣市"]], idx["veh"][r["車種組"]], idx["per"][r["時段"]],
-                        idx["ag"][r["年齡組"]], idx["l"][r["照明"]], int(r["n"])])
+                        idx["ag"][r["年齡組"]], idx["l"][r["照明"]], idx["rl"][r["雨量等級"]], int(r["n"])])
 
     cutoff = str(int(pd.to_numeric(a2_raw["發生日期"], errors="coerce").max()))
     first = str(int(pd.to_numeric(a1_raw["發生日期"], errors="coerce").min()))
@@ -280,6 +384,9 @@ def main():
         updated = "A1 " + lu.get("13139", "?") + "、A2 " + lu.get("57023", "?")
     except (OSError, ValueError):
         pass
+    if wx is not None:
+        quality["checks"] += weather_checks(a1)
+        quality["counts"] = {k: sum(1 for c in quality["checks"] if c["status"] == k) for k in ("ok", "flag", "warn")}
     data = {
         "meta": {
             "updated": updated,
@@ -293,10 +400,13 @@ def main():
             "fourCities": common.CITY_ORDER,
             "periodHours": common.PERIOD_HOURS,
         },
-        "dims": {"county": COUNTY_ORDER, "veh": VEH_ORDER, "per": PERIOD_ORDER, "ag": AGE_ORDER, "l": LIGHT_ORDER},
+        "dims": {"county": COUNTY_ORDER, "veh": VEH_ORDER, "per": PERIOD_ORDER, "ag": AGE_ORDER, "l": LIGHT_ORDER, "rl": RAIN_ORDER},
         "rows": rows,
         "a2": a2_rows,
         "geo": build_geo(cos_lat),
+        "roads": load_roads(),
+        "quality": quality,
+        "weather": weather_summary(wx, int(first), cutoff_int),
     }
 
     with open(TEMPLATE, encoding="utf-8") as f:

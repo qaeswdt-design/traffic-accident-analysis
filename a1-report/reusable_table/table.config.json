@@ -1,0 +1,107 @@
+{
+  "_說明": "這份設定檔重現『A1 死亡事故互動報告』的事故明細表:哪些欄位、怎麼排序、有哪些篩選、點開後顯示什麼、怎麼匯出。換成別的資料時,改欄位名稱即可;欄位說明見 README.md。",
+  "title": "事故明細",
+  "locale": "zh-Hant",
+  "height": 560,
+  "pageSize": 15,
+  "pageSizes": [10, 15, 30],
+
+  "computed": {
+    "ageBand": {
+      "from": "age",
+      "rules": [
+        { "isNull": true, "label": "年齡不詳" },
+        { "lt": 18, "label": "未滿18歲" },
+        { "lt": 65, "label": "18–64歲" },
+        { "label": "65歲以上" }
+      ]
+    },
+    "place1": { "from": "p", "split": " / ", "index": 0 },
+    "place2": { "from": "p", "split": " / ", "index": 1 },
+    "vehFull": { "template": "{veh}({vs})", "whenDifferent": ["veh", "vs"], "otherwise": "{veh}" },
+    "hrText": {
+      "from": "hr",
+      "rules": [
+        { "eq": "是", "label": "是" },
+        { "label": "否" }
+      ]
+    }
+  },
+
+  "defaultSort": { "key": "d", "dir": "desc" },
+
+  "columns": [
+    { "key": "d",    "label": "日期",       "template": "{d}(週{dow})", "sortBy": ["d", "t"], "sortFirst": "desc" },
+    { "key": "t",    "label": "時間" },
+    { "key": "c",    "label": "縣市" },
+    { "key": "p",    "label": "地點",       "template": "{place1}" },
+    { "key": "veh",  "label": "第 1 當事者", "template": "{vehFull}" },
+    { "key": "age",  "label": "年齡",       "template": "{age|不詳}", "type": "number" },
+    { "key": "cs",   "label": "主要肇因" },
+    { "key": "as",   "label": "事故型態" },
+    { "key": "dead", "label": "死亡",       "type": "number" },
+    { "key": "hurt", "label": "受傷",       "type": "number" },
+    { "key": "sex",  "label": "性別",       "default": false },
+    { "key": "per",  "label": "時段",       "default": false },
+    { "key": "cc",   "label": "肇因類別",   "default": false },
+    { "key": "at",   "label": "事故大類",   "default": false },
+    { "key": "rc",   "label": "道路類別",   "default": false },
+    { "key": "sh",   "label": "道路型態",   "default": false },
+    { "key": "sp",   "label": "速限",       "default": false },
+    { "key": "sg",   "label": "號誌",       "default": false },
+    { "key": "w",    "label": "天候",       "default": false },
+    { "key": "l",    "label": "照明",       "default": false },
+    { "key": "hrText", "label": "肇事逃逸", "default": false }
+  ],
+
+  "search": {
+    "fields": ["d", "t", "c", "p", "veh", "vs", "sex", "cs", "cc", "at", "as", "rc", "sh", "sg", "sp", "w", "l", "per", "fl"],
+    "extraTemplates": ["週{dow}", "{age|年齡不詳}歲"]
+  },
+
+  "filters": [
+    { "type": "select", "key": "c",       "label": "縣市",     "field": "c" },
+    { "type": "select", "key": "veh",     "label": "車種",     "field": "veh" },
+    { "type": "select", "key": "per",     "label": "時段",     "field": "per",     "order": ["早峰(06-08)", "日間(09-15)", "晚峰(16-19)", "夜間(20-05)"] },
+    { "type": "select", "key": "ageBand", "label": "年齡層",   "field": "ageBand", "order": ["未滿18歲", "18–64歲", "65歲以上", "年齡不詳"] },
+    { "type": "select", "key": "at",      "label": "事故大類", "field": "at" },
+    { "type": "select", "key": "cc",      "label": "肇因類別", "field": "cc" },
+    { "type": "check",  "key": "dead2",   "label": "死亡 2 人以上",       "field": "dead", "op": ">=", "value": 2 },
+    { "type": "check",  "key": "hr",      "label": "只看肇事逃逸",         "field": "hr",   "op": "==", "value": "是" },
+    { "type": "check",  "key": "flagged", "label": "只看有資料標註 ⚑",    "field": "fl",   "op": "nonEmpty" }
+  ],
+
+  "flagField": "fl",
+  "flagColumn": "p",
+  "flagLabel": "資料標註",
+  "flagTitle": "資料標註:",
+
+  "detail": [
+    { "label": "日期時間",     "template": "{d}(週{dow}) {t}" },
+    { "label": "時段",         "template": "{per}" },
+    { "label": "地點",         "template": "{place1}" },
+    { "label": "路口另一側",   "template": "{place2}", "hideIfEmpty": true },
+    { "label": "縣市",         "template": "{c}" },
+    { "label": "座標",         "template": "{y}, {x}" },
+    { "label": "第 1 當事者",  "template": "{vehFull}" },
+    { "label": "性別 / 年齡",  "template": "{sex|—} / {age|不詳} 歲({ageBand})" },
+    { "label": "主要肇因",     "template": "{cs}" },
+    { "label": "肇因類別",     "template": "{cc}" },
+    { "label": "事故型態",     "template": "{at} / {as}" },
+    { "label": "道路",         "template": "{rc}、{sh}" },
+    { "label": "號誌 / 速限",  "template": "{sg} / {sp} km/h" },
+    { "label": "天候 / 照明",  "template": "{w} / {l}" },
+    { "label": "死亡 / 受傷",  "template": "{dead} 人 / {hurt} 人" },
+    { "label": "肇事逃逸",     "template": "{hrText}" }
+  ],
+
+  "csv": {
+    "filename": "事故篩選結果.csv",
+    "columns": [
+      ["d", "日期"], ["t", "時間"], ["dow", "星期"], ["c", "縣市"], ["p", "地點"], ["x", "經度"], ["y", "緯度"],
+      ["veh", "車種"], ["vs", "車種細項"], ["age", "年齡"], ["sex", "性別"], ["cs", "主要肇因"], ["cc", "肇因類別"],
+      ["at", "事故大類"], ["as", "事故型態"], ["rc", "道路類別"], ["sh", "道路型態"], ["sg", "號誌"], ["sp", "速限"],
+      ["l", "照明"], ["w", "天候"], ["dead", "死亡"], ["hurt", "受傷"], ["hr", "肇事逃逸"], ["fl", "資料標註"]
+    ]
+  }
+}

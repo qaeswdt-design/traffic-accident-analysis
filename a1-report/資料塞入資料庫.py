@@ -91,3 +91,10 @@ else:
 
 # 所有資料庫操作都做完了,最後才關閉連線
 conn.close()
+
+# 匯入完成後自動做資料品質檢查(只提醒,不中斷;不確定的紀錄一律保留並標註,不刪除)
+try:
+    import data_quality
+    data_quality.main()
+except Exception as e:  # 體檢失敗不應影響匯入結果
+    print(f"(資料品質檢查未能執行:{e})")

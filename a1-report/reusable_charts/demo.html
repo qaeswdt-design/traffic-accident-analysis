@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>圖表版型示範(charts.js)</title>
+<link rel="stylesheet" href="charts.css">
+<style>
+body{margin:0;background:#f4f3ef;font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",system-ui,sans-serif}
+@media (prefers-color-scheme: dark){body{background:#121211}}
+.wrap{max-width:1100px;margin:0 auto;padding:20px 16px}
+h1{font-size:22px;margin:0 0 4px} p.lead{margin:0 0 16px;color:#77766f}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr))}
+.card{background:var(--ch-bg);border:1px solid var(--ch-line);border-radius:12px;padding:16px 18px;min-width:0}
+.card h3{margin:0 0 2px;font-size:15px} .card .sub{color:var(--ch-ink2);font-size:13px;margin-bottom:10px}
+.card code{font-size:12px;color:var(--ch-ink3)}
+</style>
+</head>
+<body class="ch-root">
+<div class="wrap">
+  <h1>圖表版型示範</h1>
+  <p class="lead">下面六張圖都是用 <code>charts.js</code> 畫的,資料是隨機產生的示範資料。每張圖的資料格式見各段程式與 README.md。</p>
+  <div class="grid">
+    <div class="card"><h3>1. barList 橫條清單</h3><div class="sub">可點選、可分頁(每頁固定列數)<br><code>Charts.barList(host, items, { onClick, pageSize })</code></div><div id="c-bar"></div></div>
+    <div class="card"><h3>2. columns 直條圖(堆疊)</h3><div class="sub">24 小時 × 年齡層堆疊,背景區段標時段<br><code>Charts.columns(host, { categories, series, values, bands })</code></div><div class="ch-legend" id="lg-col"></div><div id="c-col"></div></div>
+    <div class="card"><h3>3. forest 信賴區間</h3><div class="sub">點 = 估計值,線 = 95% 信賴區間;空心圓 = 樣本少<br><code>Charts.forest(host, items, { base, unit })</code></div><div id="c-forest"></div></div>
+    <div class="card"><h3>4. stackedBars 橫向堆疊條</h3><div class="sub">年齡層 × 車種<br><code>Charts.stackedBars(host, rows, series, { legendHost })</code></div><div class="ch-legend" id="lg-stk"></div><div id="c-stk"></div></div>
+    <div class="card"><h3>5. heatmap 熱度表</h3><div class="sub">格內是件數與該列占比,顏色越深占比越高<br><code>Charts.heatmap(host, { rows, cols, matrix })</code></div><div id="c-hm"></div></div>
+    <div class="card"><h3>6. geoScatter 可縮放地圖</h3><div class="sub">滾輪/雙指縮放、拖曳、連點兩下放大;放大後才出現細道路<br><code>Charts.geoScatter(host, { outlines, layers, points })</code></div><div id="c-map"></div></div>
+  </div>
+</div>
+<script src="charts.js"></script>
+<script>
+/* 偽隨機(固定種子,每次打開結果相同) */
+let seed = 7; const rnd = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
+const sel = { bar: null, col: new Set(), stk: new Set(), hm: null };
+
+/* 1. barList */
+const causes = ["分心駕駛", "其他不當駕車行為", "未暫停讓行人先行", "未依標誌或標線穿越道路", "未依規定減速", "轉彎車未讓直行車", "酒後駕駛", "未保持行車安全間隔", "逆向行駛", "闖紅燈直行",
+  "左轉彎未依規定", "超速駕駛", "起步時未注意安全", "方向不定", "違規超車", "變換車道不當", "未依號誌穿越", "裝載未盡安全措施"].map(n => ({ key: n, label: n, value: Math.round(2 + rnd() * 40) })).sort((a, b) => b.value - a.value);
+const total = causes.reduce((s, c) => s + c.value, 0);
+function drawBar() {
+  Charts.barList(document.getElementById("c-bar"), causes.map(c => ({ ...c, selected: sel.bar === c.key, text: `${c.value} 起 · ${Math.round(c.value / total * 100)}%`, tip: `<b>${Charts.esc(c.label)}</b><br>${c.value} 起` })),
+    { pageSize: 8, onClick: it => { sel.bar = sel.bar === it.key ? null : it.key; drawBar(); } });
+}
+drawBar();
+
+/* 2. columns:24 小時 × 年齡層 */
+const hours = Array.from({ length: 24 }, (_, h) => ({ key: h, label: String(h).padStart(2, "0") }));
+const ageSeries = [{ key: "elder", label: "65 歲以上", color: "var(--ch-s2)" }, { key: "adult", label: "18–64 歲", color: "var(--ch-s1)" }, { key: "minor", label: "未滿 18 歲", color: "var(--ch-s3)" }];
+const vals = {}; hours.forEach(h => { const peak = [7, 8, 17, 18].includes(h) ? 3 : 1; vals[h.key] = { elder: Math.round(rnd() * 3 * peak / 2), adult: Math.round(rnd() * 8 * peak), minor: rnd() < 0.15 ? 1 : 0 }; });
+function drawCol() {
+  Charts.columns(document.getElementById("c-col"), { categories: hours, series: ageSeries, values: vals, selected: sel.col,
+    bands: [[0, 6, "夜間"], [6, 9, "早峰"], [9, 16, "日間"], [16, 20, "晚峰"], [20, 24, "夜間"]],
+    onClick: k => { sel.col.has(k) ? sel.col.delete(k) : sel.col.add(k); drawCol(); } });
+}
+document.getElementById("lg-col").replaceChildren(...ageSeries.map(s => Charts.el("span", {}, [Charts.el("i", { style: `background:${s.color}` }), s.label])));
+drawCol();
+
+/* 3. forest:每千件傷亡事故中的死亡事故 */
+const groups = [["機車", 97, 40102], ["小客車", 65, 22830], ["小貨車", 10, 1457], ["大型貨車", 8, 471], ["大客車", 9, 1128], ["行人", 22, 826], ["其他", 2, 150]];
+const fItems = groups.map(([label, a, b]) => { const n = a + b, [lo, hi] = Charts.wilson(a, n);
+  return { label, v: a / n * 1000, lo: lo * 1000, hi: hi * 1000, sub: `${a}/${n.toLocaleString()}`, hollow: n < 200, tip: `<b>${label}</b><br>${a} 件死亡 / ${n.toLocaleString()} 件傷亡事故` }; });
+Charts.forest(document.getElementById("c-forest"), fItems, { base: 3.0 });
+
+/* 4. stackedBars:年齡層 × 車種 */
+const vehSeries = [{ key: "moto", label: "機車", color: "var(--ch-s1)" }, { key: "car", label: "小客車", color: "var(--ch-s2)" }, { key: "ped", label: "行人", color: "var(--ch-s3)" }, { key: "oth", label: "其他", color: "var(--ch-other)" }];
+const ageRows = ["18-29", "30-39", "40-49", "50-59", "60-69", "70以上"].map(l => ({ key: l, label: l, values: { moto: Math.round(5 + rnd() * 30), car: Math.round(3 + rnd() * 15), ped: l === "70以上" ? 14 : Math.round(rnd() * 4), oth: Math.round(rnd() * 6) } }));
+function drawStk() { Charts.stackedBars(document.getElementById("c-stk"), ageRows, vehSeries, { selected: sel.stk, unit: "起", legendHost: document.getElementById("lg-stk"),
+  onClick: k => { sel.stk.has(k) ? sel.stk.delete(k) : sel.stk.add(k); drawStk(); } }); }
+drawStk();
+
+/* 5. heatmap:時段 × 照明 */
+const hmRows = ["早峰", "日間", "晚峰", "夜間"].map(l => ({ key: l, label: l }));
+const hmCols = ["有照明且開啟", "有照明未開啟或故障", "無照明"].map(l => ({ key: l, label: l }));
+const mat = [[5, 34, 11], [20, 48, 16], [36, 15, 10], [58, 7, 3]];
+function drawHm() { Charts.heatmap(document.getElementById("c-hm"), { rows: hmRows, cols: hmCols, matrix: mat, selected: sel.hm,
+  onCell: (r, c) => { sel.hm = sel.hm && sel.hm.row === r && sel.hm.col === c ? null : { row: r, col: c }; drawHm(); } }); }
+drawHm();
+
+/* 6. geoScatter:座標是自己投影好的平面座標(這裡直接用 0–1000 的示範座標) */
+const blob = "M120 380 L200 220 L340 140 L520 120 L700 170 L860 280 L900 460 L820 640 L640 760 L420 780 L240 700 L140 540 Z";
+const blob2 = "M520 120 L700 170 L860 280 L780 330 L640 260 L540 220 Z";
+const roads = (n, len) => Array.from({ length: n }, () => { let x = 100 + rnd() * 800, y = 120 + rnd() * 660, d = `M${x.toFixed(0)} ${y.toFixed(0)}l`; for (let i = 0; i < len; i++) d += `${(rnd() * 60 - 20).toFixed(0)} ${(rnd() * 60 - 20).toFixed(0)} `; return d; }).join("");
+const colors = ["var(--ch-s1)", "var(--ch-s2)", "var(--ch-s3)"];
+const mapPts = Array.from({ length: 140 }, () => { const x = 160 + rnd() * 680, y = 160 + rnd() * 580, c = Math.floor(rnd() * 3); return { x, y, r: rnd() < 0.1 ? 8 : 4.2, color: colors[c], tip: `<b>示範點</b><br>(${x.toFixed(0)}, ${y.toFixed(0)})` }; });
+Charts.geoScatter(document.getElementById("c-map"), {
+  outlines: [{ d: blob, focus: false }, { d: blob2, focus: true, label: "示範縣市", labelAt: [700, 215] }],
+  layers: [{ d: roads(160, 7), className: "ch-road detail" }, { d: roads(40, 9), className: "ch-road minor" }, { d: roads(8, 14), className: "ch-road major" }],
+  points: mapPts, maxZoom: 14 });
+</script>
+</body>
+</html>

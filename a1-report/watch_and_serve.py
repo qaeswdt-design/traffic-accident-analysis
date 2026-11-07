@@ -7,6 +7,10 @@
   3. 指紋變了,且連續 SETTLE_SECONDS 秒沒再變(等匯入寫完),就重新產生。
   4. 產生成功後寫出 public/version.json,開著的網頁會偵測到並提示重新整理。
 產生失敗時保留舊報告,下一次檢查會再試。
+
+自動下載氣象資料(AUTO_FETCH_WEATHER=1):容器啟動時,以及之後每 WEATHER_CHECK_HOURS 小時,
+執行「氣象資料下載更新.py --yes --if-needed 20」;距離上次成功不到 20 小時會直接略過。
+下載寫入 data.db 後,上面的監看機制會自動重新產生報告。下載失敗只記錄在日誌,不影響網頁。
 """
 import functools
 import http.server
@@ -23,6 +27,8 @@ DB = os.path.join(SOURCE, "data.db")
 PORT = int(os.environ.get("PORT", "8003"))
 POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "15"))
 SETTLE_SECONDS = int(os.environ.get("SETTLE_SECONDS", "20"))
+AUTO_FETCH_WEATHER = os.environ.get("AUTO_FETCH_WEATHER", "0") == "1"
+WEATHER_CHECK_HOURS = float(os.environ.get("WEATHER_CHECK_HOURS", "6"))
 
 
 def log(msg):
@@ -52,6 +58,21 @@ def build():
     return False
 
 
+def fetch_weather_loop():
+    """背景執行緒:定期下載氣象資料(增量,已是最新時腳本會自行略過)。"""
+    script = os.path.join(BASE, "氣象資料下載更新.py")
+    while True:
+        log("檢查氣象資料是否需要更新…")
+        try:
+            r = subprocess.run([sys.executable, script, "--yes", "--if-needed", "20", "--db", DB], cwd=BASE,
+                               capture_output=True, text=True, encoding="utf-8", timeout=3 * 3600)
+            tail = (r.stdout or "").strip().splitlines()[-3:]
+            log(("氣象資料:" if r.returncode == 0 else "氣象資料下載失敗:") + " ".join(tail or [(r.stderr or "")[-300:]]))
+        except Exception as e:
+            log(f"氣象資料下載例外:{e}")
+        time.sleep(WEATHER_CHECK_HOURS * 3600)
+
+
 def serve():
     os.makedirs(PUBLIC, exist_ok=True)
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=PUBLIC)
@@ -65,6 +86,8 @@ def main():
     if signature() is None:
         log(f"找不到資料庫 {DB},只提供上次產生的報告。")
     serve()
+    if AUTO_FETCH_WEATHER:
+        threading.Thread(target=fetch_weather_loop, daemon=True).start()
     built_sig = None
     if os.environ.get("AUTO_BUILD", "1") == "1" and signature() is not None:
         if build():

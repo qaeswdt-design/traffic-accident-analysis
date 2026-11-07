@@ -16,6 +16,8 @@ services:
       - .:/app                    # 這個資料夾：程式、data.db、輸出(public/)全都在裡面
     environment:
       AUTO_BUILD: "1"             # 啟動時先重新產生一次(約 1 分鐘)；改成 "0" 就先用上次的 public/index.html
+      AUTO_FETCH_WEATHER: "1"     # 自動下載氣象署逐日氣象資料(啟動時與每 6 小時檢查;距上次不到 20 小時會略過);改成 "0" 關閉
+      WEATHER_CHECK_HOURS: "6"
       POLL_SECONDS: "15"          # 每幾秒檢查一次 data.db 有沒有變
       SETTLE_SECONDS: "20"        # 變動後等幾秒沒再變(匯入寫完)才重新產生
     restart: "no"
