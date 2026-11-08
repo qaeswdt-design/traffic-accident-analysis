@@ -1,0 +1,11 @@
+# GitHub 的語言統計(儲存庫頁面的語言比例)設定
+# .gml 是縣市界的地理資料(GML,約 12 MB),但 GitHub 會把 .gml 誤判成「Game Maker Language」遊戲語言,
+# 因為檔案太大而佔了絕大多數比例。這裡把它排除在語言統計之外。
+*.gml linguist-detectable=false
+*.gml linguist-generated=true
+
+# 程式自動產生的報告成品與範例頁(單檔 HTML,內嵌大量資料),不計入語言統計
+a1-report/A1_*.html linguist-generated=true
+a1-report/A1_report.html linguist-generated=true
+a1-report/reusable_table/example.html linguist-generated=true
+a1-report/reusable_table/examples/*.html linguist-generated=true
