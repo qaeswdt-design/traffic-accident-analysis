@@ -21,3 +21,6 @@ __pycache__/
 # 本機專用檔案,不進版控
 private/
 A1_死亡事故互動報告_完整版*.html
+
+# 分享用:英文檔名的報告副本與壓縮檔(根目錄 .gitignore 擋了 *.zip,這裡放行)
+!A1_report.zip
